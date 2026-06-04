@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Segmentación de Clientes — Multi-Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  body { font-family: 'Inter', sans-serif; }
+  .prose table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .prose th, .prose td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
+  .prose th { background: #f9fafb; font-weight: 600; }
+  .prose h1 { font-size: 1.5rem; font-weight: 700; margin: 1rem 0 0.5rem; }
+  .prose h2 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem; color: #1e40af; }
+  .prose h3 { font-size: 1.1rem; font-weight: 600; margin: 0.75rem 0 0.25rem; }
+  .prose ul, .prose ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+  .prose li { margin: 0.25rem 0; }
+  .prose p { margin: 0.5rem 0; }
+  .prose strong { font-weight: 600; }
+  .prose code { background: #f3f4f6; padding: 0.15rem 0.35rem; border-radius: 0.25rem; font-size: 0.85em; }
+  .prose hr { border-color: #e5e7eb; margin: 1rem 0; }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fade-in { animation: fadeIn 0.3s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const API = "";
+
+// ── Markdown parser simple ─────────────────────────────────────
+function md(text) {
+  if (!text) return "";
+  let h = text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/^---$/gm, '<hr/>')
+    .replace(/^\| (.+)$/gm, (match) => {
+      const cells = match.split('|').filter(c => c.trim());
+      if (cells.every(c => /^[\s-]+$/.test(c))) return '';
+      const tag = cells.some(c => /^\*\*/.test(c.trim())) ? 'th' : 'td';
+      return '<tr>' + cells.map(c => `<td>${c.trim().replace(/\*\*/g,'')}</td>`).join('') + '</tr>';
+    })
+    .replace(/(<tr>[\s\S]*?<\/tr>\n?)+/g, '<table>$&</table>')
+    .replace(/^[•\-\*] (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, '<ul>$&</ul>')
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    .replace(/\n{2,}/g, '</p><p>')
+    .replace(/\n/g, '<br/>');
+  return `<p>${h}</p>`;
+}
+
+// ── Cluster Card ───────────────────────────────────────────────
+function ClusterCard({ cluster, onClick }) {
+  const colors = ["bg-blue-500","bg-emerald-500","bg-amber-500","bg-rose-500"];
+  return (
+    <div onClick={() => onClick(cluster)} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all">
+      <div className="flex items-center gap-3 mb-3">
+        <div className={`w-3 h-3 rounded-full ${colors[cluster.cluster_id]}`}></div>
+        <h3 className="font-semibold text-gray-800">C{cluster.cluster_id}: {cluster.nombre}</h3>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div><span className="text-gray-500">Visitantes:</span> <span className="font-medium">{cluster.n.toLocaleString()}</span></div>
+        <div><span className="text-gray-500">% Total:</span> <span className="font-medium">{cluster.pct}%</span></div>
+        <div><span className="text-gray-500">Hits avg:</span> <span className="font-medium">{cluster.hits_avg}</span></div>
+        <div><span className="text-gray-500">Bounce:</span> <span className="font-medium">{(cluster.bounce_avg * 100).toFixed(1)}%</span></div>
+        <div><span className="text-gray-500">Weekend:</span> <span className="font-medium">{(cluster.weekend_avg * 100).toFixed(1)}%</span></div>
+        <div><span className="text-gray-500">Sessions:</span> <span className="font-medium">{cluster.sessions_avg}</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ── Chat Message ───────────────────────────────────────────────
+function ChatMessage({ msg }) {
+  if (msg.role === "user") {
+    return (
+      <div className="flex justify-end fade-in">
+        <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-4 py-3 max-w-[80%] shadow-sm">
+          <p className="text-sm">{msg.content}</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="fade-in">
+      <div className="bg-white rounded-2xl rounded-bl-md px-5 py-4 max-w-[90%] shadow-sm border border-gray-100">
+        {msg.meta && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {msg.meta.agents_used?.map((a, i) => (
+              <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">{a}</span>
+            ))}
+            {msg.meta.tools_called?.map((t, i) => (
+              <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{t.name}</span>
+            ))}
+            <span className="text-xs text-gray-400">{(msg.meta.total_latency_ms/1000).toFixed(1)}s</span>
+          </div>
+        )}
+        <div className="prose text-sm text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{__html: md(msg.content)}} />
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────
+function App() {
+  const [tab, setTab] = useState("chat");
+  const [clusters, setClusters] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [health, setHealth] = useState(null);
+  const [traces, setTraces] = useState([]);
+  const chatEnd = useRef(null);
+
+  useEffect(() => {
+    fetch(`${API}/clusters`).then(r => r.json()).then(setClusters).catch(() => {});
+    fetch(`${API}/health`).then(r => r.json()).then(setHealth).catch(() => {});
+  }, []);
+
+  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  useEffect(() => {
+    if (tab === "traces") {
+      fetch(`${API}/traces`).then(r => r.json()).then(setTraces).catch(() => {});
+    }
+  }, [tab]);
+
+  const sendQuery = async (q) => {
+    const query = q || input.trim();
+    if (!query || loading) return;
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: query }]);
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/agent/query`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      const data = await res.json();
+      setMessages(prev => [...prev, { role: "assistant", content: data.answer, meta: data }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "assistant", content: "Error de conexión con la API." }]);
+    }
+    setLoading(false);
+  };
+
+  const quickQueries = [
+    "¿Cuáles son los 4 clusters y sus características?",
+    "Compara el cluster 0 y 3 en detalle",
+    "Analiza los Mobile Users y sugiere estrategia de marketing",
+    "¿La diferencia en bounce entre C0 y C3 es significativa?",
+  ];
+
+  return (
+    <div className="flex flex-col h-screen">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-sm">SA</span>
+          </div>
+          <div>
+            <h1 className="font-semibold text-gray-800 text-sm">Segmentation Agent</h1>
+            <p className="text-xs text-gray-500">Multi-agent · LangGraph · MLflow</p>
+          </div>
+        </div>
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+          {["chat","clusters","traces"].map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                tab === t ? "bg-white shadow-sm text-blue-600" : "text-gray-500 hover:text-gray-700"}`}>
+              {t === "chat" ? "💬 Chat" : t === "clusters" ? "📊 Clusters" : "🔍 Traces"}
+            </button>
+          ))}
+        </div>
+        {health && (
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <div className={`w-2 h-2 rounded-full ${health.status === "healthy" ? "bg-green-500" : "bg-yellow-500"}`}></div>
+            {health.n_visitors?.toLocaleString()} visitantes · {health.n_clusters} clusters
+          </div>
+        )}
+      </header>
+
+      {/* Content */}
+      <main className="flex-1 overflow-hidden">
+        {/* Chat Tab */}
+        {tab === "chat" && (
+          <div className="flex flex-col h-full">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              {messages.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
+                    <span className="text-3xl">🤖</span>
+                  </div>
+                  <h2 className="text-lg font-semibold text-gray-800 mb-1">Sistema Multi-Agente</h2>
+                  <p className="text-sm text-gray-500 mb-6 max-w-md">
+                    3 agentes especialistas (Analyst, Statistician, Strategist) colaboran para responder tus preguntas sobre la segmentación.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-xl">
+                    {quickQueries.map((q, i) => (
+                      <button key={i} onClick={() => sendQuery(q)}
+                        className="text-left text-sm px-4 py-3 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all text-gray-600">
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {messages.map((m, i) => <ChatMessage key={i} msg={m} />)}
+              {loading && (
+                <div className="flex gap-3 items-center text-sm text-gray-500 fade-in">
+                  <div className="w-5 h-5 border-2 border-blue-300 border-t-blue-600 rounded-full spin"></div>
+                  Agentes trabajando...
+                </div>
+              )}
+              <div ref={chatEnd} />
+            </div>
+            <div className="border-t border-gray-200 bg-white px-6 py-4">
+              <div className="flex gap-3 max-w-3xl mx-auto">
+                <input value={input} onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && sendQuery()}
+                  placeholder="Pregunta sobre los clusters..."
+                  className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                  disabled={loading} />
+                <button onClick={() => sendQuery()}
+                  disabled={loading || !input.trim()}
+                  className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-all">
+                  Enviar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Clusters Tab */}
+        {tab === "clusters" && (
+          <div className="p-6 overflow-y-auto h-full">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Segmentos Identificados</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {clusters.map(c => (
+                <ClusterCard key={c.cluster_id} cluster={c}
+                  onClick={(cl) => { setTab("chat"); sendQuery(`Perfila el cluster ${cl.cluster_id} (${cl.nombre}) en detalle`); }} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Traces Tab */}
+        {tab === "traces" && (
+          <div className="p-6 overflow-y-auto h-full">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Historial de Consultas (MLflow)</h2>
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b">
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Run</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Query</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Agentes</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Tools</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Latencia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {traces.map((t, i) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">{t.run_id}</td>
+                      <td className="px-4 py-3 text-gray-700 max-w-xs truncate">{t.query}</td>
+                      <td className="px-4 py-3"><span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{t.n_agents}</span></td>
+                      <td className="px-4 py-3"><span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t.n_tools}</span></td>
+                      <td className="px-4 py-3 text-gray-500">{(t.total_latency_ms/1000).toFixed(1)}s</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {traces.length === 0 && <p className="text-center text-gray-400 py-8">Sin consultas registradas aún</p>}
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
