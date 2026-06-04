@@ -24,7 +24,7 @@ services:
         --port 5000
         --backend-store-uri sqlite:///mlflow.db
         --default-artifact-root /app/mlruns
-        --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000
+        --allowed-hosts *
 
   frontend:
     image: nginx:alpine
