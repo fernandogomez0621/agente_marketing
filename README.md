@@ -1,3 +1,13 @@
+
+
+## Acceso Producción — 3 Puertos
+
+| Puerto | Servicio | URL | Qué es |
+|---------|----------|-----|--------|
+| **3000** | React Frontend | http://3.16.212.12:3000 | Chat con los agentes, vista de clusters e historial de trazas |
+| **8000** | FastAPI API | http://3.16.212.12:8000/docs | Swagger UI con los endpoints REST |
+| **5000** | MLflow | http://3.16.212.12:5000 | Tracking de experimentos, métricas y artefactos |
+
 # Segmentación de Clientes — Challenge
 
 Sistema de análisis de segmentación de clientes con **multi-agente conversacional**
@@ -35,6 +45,9 @@ docker-compose up --build
 | **3000** | React Frontend | http://localhost:3000 | Chat con los agentes, vista de clusters, historial de traces |
 | **8000** | FastAPI API | http://localhost:8000/docs | Swagger UI con los 6 endpoints REST |
 | **5000** | MLflow | http://localhost:5000 | Tracking de experimentos, métricas, artefactos |
+
+
+
 
 ### Probar con curl (sin frontend)
 
